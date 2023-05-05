@@ -621,7 +621,7 @@ CREATE_FAIL:
 #ifdef CONFIG_ROCKCHIP_RGA_PROC_FS
 static int rga_procfs_open(struct inode *inode, struct file *file)
 {
-	struct rga_debugger_node *node = PDE_DATA(inode);
+	struct rga_debugger_node *node = pde_data(inode);
 
 	return single_open(file, node->info_ent->show, node);
 }
@@ -836,6 +836,8 @@ static int rga_dump_image_to_file(struct rga_internal_buffer *dump_buffer,
 	struct file *file;
 	size_t size = 0;
 	loff_t pos = 0;
+	int ret;
+	struct iosys_map map;
 	void *kvaddr = NULL;
 	void *kvaddr_origin = NULL;
 
@@ -848,7 +850,8 @@ static int rga_dump_image_to_file(struct rga_internal_buffer *dump_buffer,
 			return -EINVAL;
 		}
 
-		kvaddr = dma_buf_vmap(dump_buffer->dma_buffer->dma_buf);
+		ret = dma_buf_vmap(dump_buffer->dma_buffer->dma_buf, &map);
+		kvaddr = ret ? NULL : map.vaddr;
 		if (!kvaddr) {
 			pr_err("can't vmap the dma buffer!\n");
 			return -EINVAL;
