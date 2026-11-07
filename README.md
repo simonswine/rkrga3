@@ -22,7 +22,11 @@ Vendor-tree-only APIs were removed: the hand-rolled page-table-walk fallback in
 modules on mainline) now falls back to a plain `get_user_pages_remote()` failure
 instead. Mainline API deltas are version-guarded in place:
 `hrtimer_setup()` (≥ 6.13), string-form `MODULE_IMPORT_NS()` (≥ 6.13),
-`strscpy_pad()` instead of removed `strncpy()` (7.x).
+`strscpy_pad()` instead of removed `strncpy()` (7.x). Additionally, on
+kernels ≥ 6.15 the per-domain IOMMU fault hook is skipped: `iommu_set_fault_handler()`
+became a domain-cookie API that refuses to install a handler on the default DMA
+domain; IOMMU faults then surface as generic IOMMU reports and jobs recover via
+the timeout path.
 
 The driver binds the `rockchip,rga3` / `rockchip,rga2` device tree nodes
 (`rockchip,rk3588-rga` style) and exposes `/dev/rga` for the vendor `librga`

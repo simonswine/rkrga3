@@ -221,6 +221,7 @@ void rga_mmu_base_free(struct rga_mmu_base **mmu_base)
 	*mmu_base = NULL;
 }
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 15, 0)
 static int rga_iommu_intr_fault_handler(struct iommu_domain *iommu, struct device *iommu_dev,
 					unsigned long iova, int status, void *arg)
 {
@@ -252,6 +253,7 @@ static int rga_iommu_intr_fault_handler(struct iommu_domain *iommu, struct devic
 
 	return 0;
 }
+#endif
 
 int rga_iommu_detach(struct rga_iommu_info *info)
 {
@@ -338,9 +340,19 @@ int rga_iommu_bind(void)
 			if (main_iommu == NULL) {
 				main_iommu = scheduler->iommu_info;
 				main_iommu_index = i;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 15, 0)
 				iommu_set_fault_handler(main_iommu->domain,
 							rga_iommu_intr_fault_handler,
 							(void *)scheduler);
+#else
+				/* Since v6.15 iommu_set_fault_handler() is a domain-cookie
+				 * API that WARNs and refuses to install a handler on a domain
+				 * that already carries one — and the device's default DMA
+				 * domain always has the dma-iommu cookie. Skip the fault
+				 * hook; faults still surface as generic IOMMU reports and
+				 * jobs recover via the timeout path. */
+				pr_info("rga: iommu fault hook unavailable on this kernel, relying on job timeout\n");
+#endif
 			} else {
 				scheduler->iommu_info->domain = main_iommu->domain;
 				scheduler->iommu_info->default_dev = main_iommu->default_dev;
