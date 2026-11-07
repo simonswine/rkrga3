@@ -406,9 +406,12 @@ static enum hrtimer_restart hrtimer_handler(struct hrtimer *timer)
 static void rga_init_timer(void)
 {
 	kt = ktime_set(0, RGA_TIMER_INTERVAL_NS);
+#if LINUX_VERSION_CODE < KERNEL_VERSION(6, 13, 0)
 	hrtimer_init(&timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-
 	timer.function = hrtimer_handler;
+#else
+	hrtimer_setup(&timer, hrtimer_handler, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+#endif
 
 	hrtimer_start(&timer, kt, HRTIMER_MODE_REL);
 }
@@ -1081,7 +1084,10 @@ static long rga_ioctl(struct file *file, uint32_t cmd, unsigned long arg)
 		driver_version.major = DRIVER_MAJOR_VERSION;
 		driver_version.minor = DRIVER_MINOR_VERSION;
 		driver_version.revision = DRIVER_REVISION_VERSION;
-		strncpy((char *)driver_version.str, DRIVER_VERSION, sizeof(driver_version.str));
+		/* strncpy() was removed from the kernel in 7.x; strscpy_pad() keeps
+		 * the NUL-padding behaviour of the old code. */
+		strscpy_pad((char *)driver_version.str, DRIVER_VERSION,
+			    sizeof(driver_version.str));
 
 		if (copy_to_user((void *)arg, &driver_version, sizeof(driver_version)))
 			ret = -EFAULT;
@@ -1762,6 +1768,11 @@ MODULE_AUTHOR("putin.li@rock-chips.com");
 MODULE_DESCRIPTION("Driver for rga device");
 MODULE_LICENSE("GPL");
 #ifdef MODULE_IMPORT_NS
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(6, 13, 0)
+MODULE_IMPORT_NS("DMA_BUF");
+MODULE_IMPORT_NS("VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver");
+#else
 MODULE_IMPORT_NS(DMA_BUF);
 MODULE_IMPORT_NS(VFS_internal_I_am_really_a_filesystem_and_am_NOT_a_driver);
+#endif
 #endif

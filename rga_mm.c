@@ -204,85 +204,6 @@ static void rga_current_mm_read_unlock(struct mm_struct *mm)
 #endif
 }
 
-static int rga_get_user_pages_from_vma(struct page **pages, unsigned long Memory,
-				       uint32_t pageCount, struct mm_struct *current_mm)
-{
-	int ret = 0;
-	int i;
-	struct vm_area_struct *vma;
-	spinlock_t *ptl;
-	pte_t *pte;
-	pgd_t *pgd;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-	p4d_t *p4d;
-#endif
-	pud_t *pud;
-	pmd_t *pmd;
-	unsigned long pfn;
-
-	for (i = 0; i < pageCount; i++) {
-		vma = find_vma(current_mm, (Memory + i) << PAGE_SHIFT);
-		if (!vma) {
-			rga_err("page[%d] failed to get vma\n", i);
-			ret = RGA_OUT_OF_RESOURCES;
-			break;
-		}
-
-		pgd = pgd_offset(current_mm, (Memory + i) << PAGE_SHIFT);
-		if (pgd_none(*pgd) || unlikely(pgd_bad(*pgd))) {
-			rga_err("page[%d] failed to get pgd\n", i);
-			ret = RGA_OUT_OF_RESOURCES;
-			break;
-		}
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 10, 0)
-		/*
-		 * In the four-level page table,
-		 * it will do nothing and return pgd.
-		 */
-		p4d = p4d_offset(pgd, (Memory + i) << PAGE_SHIFT);
-		if (p4d_none(*p4d) || unlikely(p4d_bad(*p4d))) {
-			rga_err("page[%d] failed to get p4d\n", i);
-			ret = RGA_OUT_OF_RESOURCES;
-			break;
-		}
-
-		pud = pud_offset(p4d, (Memory + i) << PAGE_SHIFT);
-#else
-		pud = pud_offset(pgd, (Memory + i) << PAGE_SHIFT);
-#endif
-
-		if (pud_none(*pud) || unlikely(pud_bad(*pud))) {
-			rga_err("page[%d] failed to get pud\n", i);
-			ret = RGA_OUT_OF_RESOURCES;
-			break;
-		}
-		pmd = pmd_offset(pud, (Memory + i) << PAGE_SHIFT);
-		if (pmd_none(*pmd) || unlikely(pmd_bad(*pmd))) {
-			rga_err("page[%d] failed to get pmd\n", i);
-			ret = RGA_OUT_OF_RESOURCES;
-			break;
-		}
-		pte = pte_offset_map_lock(current_mm, pmd,
-					  (Memory + i) << PAGE_SHIFT, &ptl);
-		if (pte_none(*pte)) {
-			rga_err("page[%d] failed to get pte\n", i);
-			pte_unmap_unlock(pte, ptl);
-			ret = RGA_OUT_OF_RESOURCES;
-			break;
-		}
-
-		pfn = pte_pfn(*pte);
-		pages[i] = pfn_to_page(pfn);
-		pte_unmap_unlock(pte, ptl);
-	}
-
-	if (ret == RGA_OUT_OF_RESOURCES && i > 0)
-		rga_err("Only get buffer %d byte from vma, but current image required %d byte",
-			(int)(i * PAGE_SIZE), (int)(pageCount * PAGE_SIZE));
-
-	return ret;
-}
-
 static int rga_get_user_pages(struct page **pages, unsigned long Memory,
 			      uint32_t pageCount, int writeFlag,
 			      struct mm_struct *current_mm)
@@ -316,15 +237,16 @@ static int rga_get_user_pages(struct page **pages, unsigned long Memory,
 	if (result > 0 && result >= pageCount) {
 		ret = result;
 	} else {
-		if (result > 0)
-			for (i = 0; i < result; i++)
-				put_page(pages[i]);
-
-		ret = rga_get_user_pages_from_vma(pages, Memory, pageCount, current_mm);
-		if (ret < 0 && result > 0) {
+		/* The vendor tree had a manual page-walk fallback here using
+		 * pte_offset_map_lock(), which is not exported to modules on
+		 * mainline kernels. Fail normally instead. */
+		if (result > 0) {
 			rga_err("Only get buffer %d byte from user pages, but current image required %d byte\n",
 				(int)(result * PAGE_SIZE), (int)(pageCount * PAGE_SIZE));
+			for (i = 0; i < result; i++)
+				put_page(pages[i]);
 		}
+		ret = RGA_OUT_OF_RESOURCES;
 	}
 
 	rga_current_mm_read_unlock(current_mm);
